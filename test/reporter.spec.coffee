@@ -132,7 +132,7 @@ describe 'reporter', ->
       reporter.onBrowserComplete fakeChrome, undefined
       expect(mockAdd).not.to.have.been.called
 
-    it 'collects coverage data', ->
+    it 'collects coverage data on browser complete', ->
       result =
         coverage:
           "fileA.js": [4, 5, 6]
@@ -143,13 +143,33 @@ describe 'reporter', ->
       reporter.onBrowserComplete fakeChrome, result
       expect(mockAdd.lastCall.args[0]).to.deep.equal parsedValue
 
-    it 'parses string results before collecting', ->
+    it 'parses string results before collecting on browser complete', ->
       result =
         coverage: '{"file1.js":[4, 5, 6],"file2.js":[3, 4, 5]}'
       parsedValue =
         "file1.js": [4, 5, 6]
         "file2.js": [3, 4, 5]
       reporter.onBrowserComplete fakeChrome, result
+      expect(mockAdd.lastCall.args[0]).to.deep.equal parsedValue
+
+    it 'collects coverage data on spec complete', ->
+      result =
+        coverage:
+          "fileA.js": [4, 5, 6]
+          "fileB.js": [3, 4, 5]
+      parsedValue =
+        "fileA.js": [4, 5, 6]
+        "fileB.js": [3, 4, 5]
+      reporter.onSpecComplete fakeChrome, result
+      expect(mockAdd.lastCall.args[0]).to.deep.equal parsedValue
+
+    it 'parses string results before collecting on spec complete', ->
+      result =
+        coverage: '{"file1.js":[4, 5, 6],"file2.js":[3, 4, 5]}'
+      parsedValue =
+        "file1.js": [4, 5, 6]
+        "file2.js": [3, 4, 5]
+      reporter.onSpecComplete fakeChrome, result
       expect(mockAdd.lastCall.args[0]).to.deep.equal parsedValue
 
     it 'should make reports', ->
