@@ -23,27 +23,38 @@ describe 'reporter', ->
   mockStore = sinon.spy()
   mockStore.mix = (fn, obj) ->
     istanbul.Store.mix fn, obj
-  mockFslookup = sinon.stub
-    keys: ->
-    get: ->
-    hasKey: ->
-    set: ->
-  mockStore.create = sinon.stub().returns mockFslookup
 
   mockAdd = sinon.spy()
   mockDispose = sinon.spy()
+  mockGetFinalCoverage = sinon.stub().returns {}
   mockCollector = class Collector
     add: mockAdd
     dispose: mockDispose
-    getFinalCoverage: -> null
+    getFinalCoverage: mockGetFinalCoverage
   mockWriteReport = sinon.spy()
   mockReportCreate = sinon.stub().returns writeReport: mockWriteReport
   mockMkdir = sinon.spy()
   mockHelper =
+    _: helper._
     isDefined: (v) -> helper.isDefined v
     merge: (v...) -> helper.merge v...
     mkdirIfNotExists: mockMkdir
     normalizeWinPath: (path) -> helper.normalizeWinPath path
+  mockCoverageMap =
+    add: sinon.spy()
+    get: sinon.spy()
+  mockDefaultWatermarks =
+    statements: [50, 80]
+    branches: [50, 80]
+    functions: [50, 80]
+    lines: [50, 80]
+
+  mockSummarizeCoverage = sinon.stub().returns {
+    lines:      {total: 5, covered: 1, skipped: 0, pct: 20},
+    statements: {total: 5, covered: 1, skipped: 0, pct: 20},
+    functions:  {total: 5, covered: 1, skipped: 0, pct: 20},
+    branches:   {total: 5, covered: 1, skipped: 0, pct: 20}
+  }
 
   mocks =
     fs: mockFs
@@ -51,45 +62,36 @@ describe 'reporter', ->
       Store: mockStore
       Collector: mockCollector
       Report: create: mockReportCreate
+      config: defaultConfig: sinon.stub().returns(reporting: watermarks: mockDefaultWatermarks)
+      utils:
+        summarizeCoverage: mockSummarizeCoverage
+        summarizeFileCoverage: mockSummarizeCoverage
     dateformat: require 'dateformat'
+    './coverage-map': mockCoverageMap
 
   beforeEach ->
     m = loadFile __dirname + '/../lib/reporter.js', mocks
 
-  describe 'BasePathStore', ->
+  describe 'SourceCacheStore', ->
     options = store = null
 
     beforeEach ->
       options =
-        basePath: 'path/to/coverage/'
-      store = new m.BasePathStore options
+        sourceCache: { './foo': 'TEST_SRC_DATA' }
+      store = new m.SourceCacheStore options
 
-    describe 'toKey', ->
-      it 'should concat relative path and basePath', ->
-        expect(store.toKey './foo').to.deep.equal path.join(options.basePath, 'foo')
+    it 'should fail on call to keys', ->
+      expect(-> store.keys()).to.throw()
 
-      it 'should does not concat absolute path and basePath', ->
-        expect(store.toKey '/foo').to.deep.equal '/foo'
+    it 'should call get and check cache data', ->
+      expect(store.get('./foo')).to.equal 'TEST_SRC_DATA'
 
-    it 'should call keys and delegate to inline store', ->
-      store.keys()
-      expect(mockFslookup.keys).to.have.been.called
+    it 'should call hasKey and check cache data', ->
+      expect(store.hasKey('./foo')).to.be.true
+      expect(store.hasKey('./bar')).to.be.false
 
-    it 'should call get and delegate to inline store', ->
-      key = './path/to/js'
-      store.get(key)
-      expect(mockFslookup.get).to.have.been.calledWith path.join(options.basePath, key)
-
-    it 'should call hasKey and delegate to inline store', ->
-      key = './path/to/js'
-      store.hasKey(key)
-      expect(mockFslookup.hasKey).to.have.been.calledWith path.join(options.basePath, key)
-
-    it 'should call set and delegate to inline store', ->
-      key = './path/to/js'
-      content = 'any content'
-      store.set key, content
-      expect(mockFslookup.set).to.have.been.calledWith path.join(options.basePath, key), content
+    it 'should fail on call to set', ->
+      expect(-> store.set()).to.throw()
 
   describe 'CoverageReporter', ->
     rootConfig = emitter = reporter = null
@@ -276,3 +278,213 @@ describe 'reporter', ->
       mockMkdir.getCall(0).args[1]()
       expect(mockReportCreate).to.have.been.called
       expect(mockWriteReport).to.have.been.called
+
+    it 'should not create directory if reporting text* to console', ->
+      run = ->
+        reporter = new m.CoverageReporter rootConfig, mockHelper, mockLogger
+        reporter.onRunStart()
+        browsers.forEach (b) -> reporter.onBrowserStart b
+        reporter.onRunComplete browsers
+
+      rootConfig.coverageReporter.reporters = [
+        { type: 'text' }
+        { type: 'text-summary' }
+      ]
+      run()
+      expect(mockMkdir).not.to.have.been.called
+
+    it 'should create directory if reporting text* to file', ->
+      run = ->
+        reporter = new m.CoverageReporter rootConfig, mockHelper, mockLogger
+        reporter.onRunStart()
+        browsers.forEach (b) -> reporter.onBrowserStart b
+        reporter.onRunComplete browsers
+
+      rootConfig.coverageReporter.reporters = [{ type: 'text', file: 'file' }]
+      run()
+      expect(mockMkdir).to.have.been.calledTwice
+
+      mockMkdir.reset()
+      rootConfig.coverageReporter.reporters = [{ type: 'text-summary', file: 'file' }]
+      run()
+      expect(mockMkdir).to.have.been.calledTwice
+
+    it 'should support including all sources', ->
+      customConfig = _.merge {}, rootConfig,
+        coverageReporter:
+          dir: 'defaultdir'
+          includeAllSources: true
+
+      mockCoverageMap.get.reset()
+      mockAdd.reset()
+
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter.onRunStart()
+      browsers.forEach (b) -> reporter.onBrowserStart b
+
+      expect(mockCoverageMap.get).to.have.been.called
+      expect(mockAdd).to.have.been.calledWith mockCoverageMap.get.returnValues[0]
+
+    it 'should not retrieve the coverageMap if we aren\'t including all sources', ->
+      customConfig = _.merge {}, rootConfig,
+        coverageReporter:
+          dir: 'defaultdir'
+          includeAllSources: false
+
+      mockCoverageMap.get.reset()
+
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter.onRunStart()
+      browsers.forEach (b) -> reporter.onBrowserStart b
+
+      expect(mockCoverageMap.get).not.to.have.been.called
+
+    it 'should default to not including all sources', ->
+      customConfig = _.merge {}, rootConfig,
+        coverageReporter:
+          dir: 'defaultdir'
+
+      mockCoverageMap.get.reset()
+
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter.onRunStart()
+      browsers.forEach (b) -> reporter.onBrowserStart b
+
+      expect(mockCoverageMap.get).not.to.have.been.called
+
+    it 'should pass watermarks to istanbul', ->
+      watermarks =
+        statements: [10, 20]
+        branches: [30, 40]
+        functions: [50, 60]
+        lines: [70, 80]
+
+      customConfig = _.merge {}, rootConfig,
+        coverageReporter:
+          reporters: [
+            {
+              dir: 'reporter1'
+            }
+          ]
+          watermarks: watermarks
+
+      mockReportCreate.reset()
+
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter.onRunStart()
+      browsers.forEach (b) -> reporter.onBrowserStart b
+      reporter.onRunComplete browsers
+
+      expect(mockReportCreate).to.have.been.called
+      options = mockReportCreate.getCall(0)
+      expect(options.args[1].watermarks).to.deep.equal(watermarks)
+
+    it 'should merge with istanbul default watermarks', ->
+      watermarks =
+        statements: [10, 20]
+        lines: [70, 80]
+
+      customConfig = _.merge {}, rootConfig,
+        coverageReporter:
+          reporters: [
+            {
+              dir: 'reporter1'
+            }
+          ]
+          watermarks: watermarks
+
+      mockReportCreate.reset()
+
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter.onRunStart()
+      browsers.forEach (b) -> reporter.onBrowserStart b
+      reporter.onRunComplete browsers
+
+      expect(mockReportCreate).to.have.been.called
+      options = mockReportCreate.getCall(0)
+      expect(options.args[1].watermarks.statements).to.deep.equal(watermarks.statements)
+      expect(options.args[1].watermarks.branches).to.deep.equal(mockDefaultWatermarks.branches)
+      expect(options.args[1].watermarks.functions).to.deep.equal(mockDefaultWatermarks.functions)
+      expect(options.args[1].watermarks.lines).to.deep.equal(watermarks.lines)
+
+    it 'should not write reports after disposing the collector', ->
+      run = ->
+        reporter = new m.CoverageReporter rootConfig, mockHelper, mockLogger
+        reporter.onRunStart()
+        browsers.forEach (b) -> reporter.onBrowserStart b
+        reporter.onRunComplete browsers
+
+      rootConfig.coverageReporter.reporters = [
+        { type: 'text' }
+        { type: 'html' }
+      ]
+
+      mockDispose.reset()
+      mockWriteReport.reset()
+      mockMkdir.reset()
+
+      run()
+
+      mockMkdir.getCall(0).args[1]()
+
+      expect(mockDispose).not.to.have.been.calledBefore mockWriteReport
+
+    it 'should log errors on low coverage and fail the build', ->
+      customConfig = _.merge {}, rootConfig,
+        coverageReporter:
+          check:
+            each:
+              statements: 50
+
+      mockGetFinalCoverage.returns
+        './foo/bar.js': {}
+        './foo/baz.js': {}
+
+      spy1 = sinon.spy()
+
+      customLogger = create: (name) ->
+        debug: -> null
+        info: -> null
+        warn: -> null
+        error: spy1
+
+      results = exitCode: 0
+
+      reporter = new m.CoverageReporter customConfig, mockHelper, customLogger
+      reporter.onRunStart()
+      browsers.forEach (b) -> reporter.onBrowserStart b
+      reporter.onRunComplete browsers, results
+
+      expect(spy1).to.have.been.called
+
+      expect(results.exitCode).to.not.equal 0
+
+    it 'should not log errors on sufficient coverage and not fail the build', ->
+      customConfig = _.merge {}, rootConfig,
+        coverageReporter:
+          check:
+            each:
+              statements: 10
+
+      mockGetFinalCoverage.returns
+        './foo/bar.js': {}
+        './foo/baz.js': {}
+
+      spy1 = sinon.spy()
+
+      customLogger = create: (name) ->
+        debug: -> null
+        info: -> null
+        warn: -> null
+        error: spy1
+
+      results = exitCode: 0
+
+      reporter = new m.CoverageReporter customConfig, mockHelper, customLogger
+      reporter.onRunStart()
+      browsers.forEach (b) -> reporter.onBrowserStart b
+      reporter.onRunComplete browsers, results
+
+      expect(spy1).to.not.have.been.called
+
+      expect(results.exitCode).to.equal 0
