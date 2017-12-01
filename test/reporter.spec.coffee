@@ -10,6 +10,7 @@ describe 'reporter', ->
   # TODO(vojta): remove the dependency on karma
   helper = require '../node_modules/karma/lib/helper'
   Browser = require '../node_modules/karma/lib/browser'
+  Executor = require '../node_modules/karma/lib/executor'
   Collection = require '../node_modules/karma/lib/browser_collection'
   require('../node_modules/karma/lib/logger').setup 'INFO', false, []
 
@@ -95,8 +96,9 @@ describe 'reporter', ->
       expect(-> store.set()).to.throw()
 
   describe 'CoverageReporter', ->
-    rootConfig = emitter = reporter = null
+    rootConfig = emitter = executor = reporter = null
     browsers = fakeChrome = fakeOpera = null
+    triggerSocketCoverage = null
     mockLogger = create: (name) ->
       debug: -> null
       info: -> null
@@ -108,7 +110,16 @@ describe 'reporter', ->
         basePath: '/base'
         coverageReporter: dir: 'path/to/coverage/'
       emitter = new events.EventEmitter
-      reporter = new m.CoverageReporter rootConfig, mockHelper, mockLogger, emitter
+      executor = {
+        socketIoSockets: {
+          on: (name, fn) ->
+            fn({
+              on: (name, trigger) ->
+                triggerSocketCoverage = trigger
+            });
+        }
+      }
+      reporter = new m.CoverageReporter rootConfig, mockHelper, mockLogger, emitter, executor
       browsers = new Collection emitter
       # fake user agent only for testing
       # cf. helper.browserFullNameToShort
@@ -145,6 +156,15 @@ describe 'reporter', ->
         "fileB.js": [3, 4, 5]
       reporter.onBrowserComplete fakeChrome, result
       expect(mockAdd.lastCall.args[0]).to.deep.equal parsedValue
+
+    it 'collects coverage on socket coverage event', ->
+      info = {
+        id: fakeChrome.id,
+        coverage: { "fileA.js": [4, 5, 6] }
+      }
+      expect(triggerSocketCoverage).toBeDefined
+      triggerSocketCoverage(info)
+      expect(mockAdd.lastCall.args[0]).to.deep.equal info.coverage
 
     it 'parses string results before collecting on browser complete', ->
       result =
@@ -194,7 +214,7 @@ describe 'reporter', ->
         coverageReporter:
           subdir: 'test'
 
-      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger, emitter, executor
       reporter.onRunStart()
       browsers.forEach (b) -> reporter.onBrowserStart b
 
@@ -213,7 +233,7 @@ describe 'reporter', ->
         coverageReporter:
           subdir: (browserName) -> browserName.toLowerCase().split(/[ /-]/)[0]
 
-      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger, emitter, executor
       reporter.onRunStart()
       browsers.forEach (b) -> reporter.onBrowserStart b
 
@@ -242,7 +262,7 @@ describe 'reporter', ->
             }
           ]
 
-      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger, emitter, executor
       reporter.onRunStart()
       browsers.forEach (b) -> reporter.onBrowserStart b
 
@@ -270,7 +290,7 @@ describe 'reporter', ->
             }
           ]
 
-      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger, emitter, executor
       reporter.onRunStart()
       browsers.forEach (b) -> reporter.onBrowserStart b
 
@@ -286,7 +306,7 @@ describe 'reporter', ->
 
     it 'should not create directory if reporting text* to console', ->
       run = ->
-        reporter = new m.CoverageReporter rootConfig, mockHelper, mockLogger
+        reporter = new m.CoverageReporter rootConfig, mockHelper, mockLogger, emitter, executor
         reporter.onRunStart()
         browsers.forEach (b) -> reporter.onBrowserStart b
         reporter.onRunComplete browsers
@@ -300,7 +320,7 @@ describe 'reporter', ->
 
     it 'should create directory if reporting text* to file', ->
       run = ->
-        reporter = new m.CoverageReporter rootConfig, mockHelper, mockLogger
+        reporter = new m.CoverageReporter rootConfig, mockHelper, mockLogger, emitter, executor
         reporter.onRunStart()
         browsers.forEach (b) -> reporter.onBrowserStart b
         reporter.onRunComplete browsers
@@ -323,7 +343,7 @@ describe 'reporter', ->
       mockCoverageMap.get.reset()
       mockAdd.reset()
 
-      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger, emitter, executor
       reporter.onRunStart()
       browsers.forEach (b) -> reporter.onBrowserStart b
 
@@ -338,7 +358,7 @@ describe 'reporter', ->
 
       mockCoverageMap.get.reset()
 
-      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger, emitter, executor
       reporter.onRunStart()
       browsers.forEach (b) -> reporter.onBrowserStart b
 
@@ -351,7 +371,7 @@ describe 'reporter', ->
 
       mockCoverageMap.get.reset()
 
-      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger, emitter, executor
       reporter.onRunStart()
       browsers.forEach (b) -> reporter.onBrowserStart b
 
@@ -375,7 +395,7 @@ describe 'reporter', ->
 
       mockReportCreate.reset()
 
-      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger, emitter, executor
       reporter.onRunStart()
       browsers.forEach (b) -> reporter.onBrowserStart b
       reporter.onRunComplete browsers
@@ -400,7 +420,7 @@ describe 'reporter', ->
 
       mockReportCreate.reset()
 
-      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger
+      reporter = new m.CoverageReporter customConfig, mockHelper, mockLogger, emitter, executor
       reporter.onRunStart()
       browsers.forEach (b) -> reporter.onBrowserStart b
       reporter.onRunComplete browsers
@@ -414,7 +434,7 @@ describe 'reporter', ->
 
     it 'should not write reports after disposing the collector', ->
       run = ->
-        reporter = new m.CoverageReporter rootConfig, mockHelper, mockLogger
+        reporter = new m.CoverageReporter rootConfig, mockHelper, mockLogger, emitter, executor
         reporter.onRunStart()
         browsers.forEach (b) -> reporter.onBrowserStart b
         reporter.onRunComplete browsers
@@ -455,7 +475,7 @@ describe 'reporter', ->
 
       results = exitCode: 0
 
-      reporter = new m.CoverageReporter customConfig, mockHelper, customLogger
+      reporter = new m.CoverageReporter customConfig, mockHelper, customLogger, emitter, executor
       reporter.onRunStart()
       browsers.forEach (b) -> reporter.onBrowserStart b
       reporter.onRunComplete browsers, results
@@ -485,7 +505,7 @@ describe 'reporter', ->
 
       results = exitCode: 0
 
-      reporter = new m.CoverageReporter customConfig, mockHelper, customLogger
+      reporter = new m.CoverageReporter customConfig, mockHelper, customLogger, emitter, executor
       reporter.onRunStart()
       browsers.forEach (b) -> reporter.onBrowserStart b
       reporter.onRunComplete browsers, results
