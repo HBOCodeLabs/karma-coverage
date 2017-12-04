@@ -176,7 +176,7 @@ describe 'reporter', ->
         coverageResults: 0
       }
       spy1 = sinon.spy()
-      expect(triggerSocketCoverage).toBeDefined
+      expect(triggerPingResults).toBeDefined
       triggerPingResults(undefined, spy1);
       expect(spy1.lastCall.args[0]).to.deep.equal ack
 
