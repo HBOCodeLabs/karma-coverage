@@ -99,6 +99,7 @@ describe 'reporter', ->
     rootConfig = emitter = executor = reporter = null
     browsers = fakeChrome = fakeOpera = null
     triggerSocketCoverage = null
+    triggerPingResults = null
     mockLogger = create: (name) ->
       debug: -> null
       info: -> null
@@ -115,7 +116,10 @@ describe 'reporter', ->
           on: (name, fn) ->
             fn({
               on: (name, trigger) ->
-                triggerSocketCoverage = trigger
+                if name is 'coverage'
+                  triggerSocketCoverage = trigger
+                else if name is 'pingresults'
+                  triggerPingResults = trigger
             });
         }
       }
@@ -165,6 +169,16 @@ describe 'reporter', ->
       expect(triggerSocketCoverage).toBeDefined
       triggerSocketCoverage(info)
       expect(mockAdd.lastCall.args[0]).to.deep.equal info.coverage
+
+    it 'sends ack with pingresults message', ->
+      ack = {
+        specResults: 0,
+        coverageResults: 0
+      }
+      spy1 = sinon.spy()
+      expect(triggerSocketCoverage).toBeDefined
+      triggerPingResults(undefined, spy1);
+      expect(spy1.lastCall.args[0]).to.deep.equal ack
 
     it 'parses string results before collecting on browser complete', ->
       result =
