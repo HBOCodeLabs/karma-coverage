@@ -98,8 +98,9 @@ describe 'reporter', ->
   describe 'CoverageReporter', ->
     rootConfig = emitter = executor = reporter = null
     browsers = fakeChrome = fakeOpera = null
+    socketEmit = null
     triggerSocketCoverage = null
-    triggerPingResults = null
+    triggerCompleteCheck = null
     mockLogger = create: (name) ->
       debug: -> null
       info: -> null
@@ -111,6 +112,7 @@ describe 'reporter', ->
         basePath: '/base'
         coverageReporter: dir: 'path/to/coverage/'
       emitter = new events.EventEmitter
+      socketEmit = sinon.spy()
       executor = {
         socketIoSockets: {
           on: (name, fn) ->
@@ -118,8 +120,9 @@ describe 'reporter', ->
               on: (name, trigger) ->
                 if name is 'coverage'
                   triggerSocketCoverage = trigger
-                else if name is 'pingresults'
-                  triggerPingResults = trigger
+                else if name is 'completecheck'
+                  triggerCompleteCheck = trigger
+              emit: socketEmit
             });
         }
       }
@@ -170,15 +173,15 @@ describe 'reporter', ->
       triggerSocketCoverage(info)
       expect(mockAdd.lastCall.args[0]).to.deep.equal info.coverage
 
-    it 'sends ack with pingresults message', ->
-      ack = {
+    it 'emits completedone when results are gathered', ->
+      info = {
+        id: fakeChrome.id,
         specResults: 0,
         coverageResults: 0
       }
-      spy1 = sinon.spy()
-      expect(triggerPingResults).toBeDefined
-      triggerPingResults(undefined, spy1);
-      expect(spy1.lastCall.args[0]).to.deep.equal ack
+      expect(triggerCompleteCheck).toBeDefined
+      triggerCompleteCheck(info);
+      expect(socketEmit.lastCall.args[0]).to.equal 'completedone'
 
     it 'parses string results before collecting on browser complete', ->
       result =
